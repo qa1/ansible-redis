@@ -1,0 +1,87 @@
+- hosts:
+  - YOUR-SERVER_ADDRESS
+  become: yes
+  gather_facts: no
+  vars_prompt:
+    - name: redis_password
+      private: yes
+      prompt: Enter a secure password for your redis instance
+  tasks:
+    - name: Update apt cache
+      apt:
+        force_apt_get: yes
+        update_cache: yes
+        force: yes
+    - name: Install essential packages
+      apt:
+        force_apt_get: yes
+        name: build-essential
+        force: yes
+        state: installed
+    - name: Download redis
+      get_url:
+        url: http://download.redis.io/redis-stable.tar.gz
+        dest: /home
+        mode: 0777        
+    - name: Decompress redis tar file
+      unarchive:
+        src: /home/redis-stable.tar.gz
+        dest: /home
+        remote_src: yes
+    - name: Install redis
+      make:
+        chdir: /home/redis-stable
+        target: install
+    - name: Create necessary directories
+      file:
+        path: "{{item}}"
+        state: directory
+        mode: 0755
+      with_items:
+        - /etc/redis
+        - /var/redis
+        - /var/redis/6379
+    - name: Copy redis service file
+      copy:
+        remote_src: yes
+        src: /home/redis-stable/utils/redis_init_script
+        dest: /etc/init.d/redis_6379
+        mode: a+x
+    - name: Copy config file
+      copy:
+        remote_src: yes
+        src: /home/redis-stable/redis.conf
+        dest: /etc/redis/6379.conf
+    - name: Daemonize redis
+      lineinfile:
+        path: /etc/redis/6379.conf
+        regexp: '^daemonize '
+        line: "daemonize yes"
+    - name: Set redis PID file path
+      lineinfile:
+        path: /etc/redis/6379.conf
+        regexp: '^pidfile '
+        line: "pidfile /var/run/redis_6379.pid"
+    - name: Set redis log file path
+      lineinfile:
+        path: /etc/redis/6379.conf
+        regexp: '^dir '
+        line: "dir /var/redis/6379"
+    - name: Set redis working dir
+      lineinfile:
+        path: /etc/redis/6379.conf
+        regexp: '^logfile '
+        line: "logfile /var/log/redis_6379.log"
+    - name: Enable redis as a service
+      command: update-rc.d redis_6379 defaults
+    - name: Enable authenicate for redis
+      lineinfile:
+        path: /etc/redis/6379.conf
+        regexp: '^# requirepass '
+        line: "requirepass {{redis_password}}"
+    - name: Enable redis as a service
+      sysvinit:
+        name: redis_6379
+        enabled: yes
+        state: started
+
